@@ -78,19 +78,40 @@ class DTNode:
 
         return children
 
-    def fit(self, metric):
+    def predict(self, df: pd.DataFrame) -> str:
+        if self.is_leaf:
+            return self.label
+
+        key = df[self.split_pivot]
+        if key not in self.children:
+            return self.label
+
+        return self.children[key].predict(df)
+
+    def fit(self):
         columns = self.df.columns[:-1]
         scores = np.zeros(len(columns))
 
+        if len(self.df) < 3:
+            self.is_leaf = True
+            return
+
         for i, column in enumerate(columns):
             children = self._split(column)
-            scores[i] = metric(self.df, list(children.values()))
+            scores[i] = calc_gain_ratio(self.df, list(children.values()))
+
+        max_score = np.max(scores)
+        if np.isneginf(max_score) or max_score < 1e-1:
+            self.is_leaf = True
+            return
 
         column = columns[np.argmax(scores)]
         self.split_pivot = column
         self.children = {t: DTNode(child) for t, child in self._split(column).items()}
 
-        if np.isneginf(np.max(scores)):
+        for child in self.children.values():
+            if not child.is_leaf:
+                child.fit()
             self.is_leaf = True
             return
 
@@ -100,20 +121,15 @@ class DTNode:
 
 
 class DecisionTree:
-    def fit(self, df: pd.DataFrame, metric):
-        self.tree = DTNode(df)
-        self.tree.fit(metric)
+    def __init__(self, backend):
+        self.backend = backend
+
+    def fit(self, df: pd.DataFrame):
+        self.tree = self.backend(df)
+        self.tree.fit()
 
     def predict(self, df: pd.DataFrame) -> str:
-        node = self.tree
-        while not node.is_leaf:
-            key = df[node.split_pivot]
-            if key not in node.children:
-                break
-
-            node = node.children[key]
-
-        return node.label
+        return self.tree.predict(df)
 
 
 class RandomForest:
@@ -131,8 +147,8 @@ class RandomForest:
             dfs.append(df.iloc[indices[:-stride]])
 
         for i in range(self.n_estimators):
-            tree = DecisionTree()
-            tree.fit(dfs[i], calc_gain_ratio)
+            tree = DecisionTree(DTNode)
+            tree.fit(dfs[i])
             self.estimators.append(tree)
 
     def predict(self, df: pd.DataFrame) -> str:
@@ -174,7 +190,7 @@ if __name__ == '__main__':
         model = DecisionTree()
         model.fit(df_train, calc_gain_ratio)
     else:
-        model = RandomForest(n_estimators=10)
+        model = RandomForest(n_estimators=100)
         model.fit(df_train)
 
     for i in range(len(df_test)):
