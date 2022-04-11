@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import random
 
 import sys
 from typing import Dict, List, Tuple
@@ -51,7 +52,11 @@ class DTNode:
     def __init__(self, df: pd.DataFrame):
         self.df = df
         self.is_leaf = (len(df['label'].unique()) == 1)
-        self.label = df['label'].unique()[0]
+
+        label_counts = df['label'].value_counts(normalize=True)
+        max_label = np.argmax(label_counts.to_numpy())
+
+        self.label = label_counts.index[max_label]
 
         self.children: Dict[str, DTNode] = None
         self.split_pivot = None
@@ -103,6 +108,46 @@ class DecisionTree:
         return node.label
 
 
+class RandomForest:
+    def __init__(self, n_estimators: int):
+        self.n_estimators: int = n_estimators
+        self.estimators: List[DecisionTree] = []
+
+    def fit(self, df: pd.DataFrame):
+        indices = list(range(len(df)))
+
+        dfs = []
+        stride = len(indices)//self.n_estimators
+        for i in range(self.n_estimators):
+            random.shuffle(indices)
+            dfs.append(df.iloc[indices[:-stride]])
+
+        for i in range(self.n_estimators):
+            tree = DecisionTree()
+            tree.fit(dfs[i], calc_gain_ratio)
+            self.estimators.append(tree)
+
+        for i in range(self.n_estimators):
+            tree = DecisionTree()
+            tree.fit(dfs[i], calc_gini_index)
+            self.estimators.append(tree)
+
+    def predict(self, df: pd.DataFrame) -> str:
+        votes = dict()
+
+        for i, estimator in enumerate(self.estimators):
+            result = estimator.predict(df)
+            votes[result] = votes.get(result, 0) + (1 if i < self.n_estimators else 0.8)
+
+        max_result = None
+        max_value = -999
+        for res, val in votes.items():
+            if val > max_value:
+                max_value = val
+                max_result = res
+        return max_result
+
+
 def parse_dataset(filename: str, training: bool) -> Tuple[pd.DataFrame, str]:
     df = pd.read_csv(filename, sep='\t')
     orig_label = df.columns[-1]
@@ -122,8 +167,12 @@ if __name__ == '__main__':
     df_train, orig_label = parse_dataset(training_file, True)
     df_test, _ = parse_dataset(test_file, False)
 
-    model = DecisionTree()
-    model.fit(df_train, calc_gain_ratio)
+    if len(df_train) < 100:
+        model = DecisionTree()
+        model.fit(df_train, calc_gain_ratio)
+    else:
+        model = RandomForest(n_estimators=10)
+        model.fit(df_train)
 
     for i in range(len(df_test)):
         df_test.loc[i, orig_label] = model.predict(df_test.iloc[i])
