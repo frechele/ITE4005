@@ -127,17 +127,12 @@ class RandomForest:
             tree.fit(dfs[i], calc_gain_ratio)
             self.estimators.append(tree)
 
-        for i in range(self.n_estimators):
-            tree = DecisionTree()
-            tree.fit(dfs[i], calc_gini_index)
-            self.estimators.append(tree)
-
     def predict(self, df: pd.DataFrame) -> str:
         votes = dict()
 
         for i, estimator in enumerate(self.estimators):
             result = estimator.predict(df)
-            votes[result] = votes.get(result, 0) + (1 if i < self.n_estimators else 0.8)
+            votes[result] = votes.get(result, 0) + 1
 
         max_result = None
         max_value = -999
