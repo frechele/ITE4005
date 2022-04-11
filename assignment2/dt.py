@@ -108,16 +108,142 @@ class DTNode:
         column = columns[np.argmax(scores)]
         self.split_pivot = column
         self.children = {t: DTNode(child) for t, child in self._split(column).items()}
-
+        
         for child in self.children.values():
             if not child.is_leaf:
                 child.fit()
+
+
+class DTNode2:
+    def __init__(self, df: pd.DataFrame):
+        self.df = df
+        self.is_leaf = (len(df['label'].unique()) == 1)
+
+        label_counts = df['label'].value_counts(normalize=True)
+        max_label = np.argmax(label_counts.to_numpy())
+
+        self.label = label_counts.index[max_label]
+
+        self.children: List[DTNode2] = None
+        self.split_pivot = None
+        self.split_value = None
+
+    def _split(self, column: str, value: str) -> List[pd.DataFrame]:
+        children = list()
+        children.append(self.df[self.df[column] == value])
+        children.append(self.df[self.df[column] != value])
+
+        return children
+
+    def predict(self, df: pd.DataFrame) -> str:
+        if self.is_leaf:
+            return self.label
+
+        key = 0 if df[self.split_pivot] == self.split_value else 1
+        return self.children[key].predict(df)
+
+    def fit(self):
+        features = []
+        for column in self.df.columns[:-1]:
+            values = self.df[column].unique()
+            for value in values:
+                features.append([column, value])
+
+        scores = np.zeros(len(features))
+
+        if len(self.df) < 3:
             self.is_leaf = True
             return
 
-        for child in self.children.values():
+        for i, feat in enumerate(features):
+            column, value = feat
+            children = self._split(column, value)
+
+
+            if len(children[0]) == 0 or len(children[1]) == 0:
+                scores[i] = -np.inf
+            else:
+                scores[i] = calc_gain_ratio(self.df, children)
+
+        max_score = np.max(scores)
+        if np.isneginf(max_score):
+            self.is_leaf = True
+            return
+
+        column, value = features[np.argmax(scores)]
+        self.split_pivot = column
+        self.split_value = value
+        self.children = [DTNode2(df) for df in self._split(column, value)]
+        
+        for child in self.children:
             if not child.is_leaf:
-                child.fit(metric)
+                child.fit()
+
+
+class BDTNode:
+    def __init__(self, df: pd.DataFrame):
+        self.df = df
+        self.is_leaf = (len(df['label'].unique()) == 1)
+
+        label_counts = df['label'].value_counts(normalize=True)
+        max_label = np.argmax(label_counts.to_numpy())
+
+        self.label = label_counts.index[max_label]
+
+        self.children: List[BDTNode] = None
+        self.split_pivot = None
+        self.split_value = None
+
+    def _split(self, column: str, value: str) -> List[pd.DataFrame]:
+        children = list()
+        children.append(self.df[self.df[column] == value])
+        children.append(self.df[self.df[column] != value])
+
+        return children
+
+    def predict(self, df: pd.DataFrame) -> str:
+        if self.is_leaf:
+            return self.label
+
+        key = 0 if df[self.split_pivot] == self.split_value else 1
+        return self.children[key].predict(df)
+
+    def fit(self):
+        features = []
+        for column in self.df.columns[:-1]:
+            values = self.df[column].unique()
+            for value in values:
+                features.append([column, value])
+
+        scores = np.zeros(len(features))
+
+        if len(self.df) < 3:
+            self.is_leaf = True
+            return
+
+        for i, feat in enumerate(features):
+            column, value = feat
+            children = self._split(column, value)
+
+
+            if len(children[0]) == 0 or len(children[1]) == 0:
+                scores[i] = -np.inf
+            else:
+                scores[i] = calc_gini_index(self.df, children)
+
+        max_score = np.max(scores)
+        if np.isneginf(max_score):
+            self.is_leaf = True
+            return
+
+        column, value = features[np.argmax(scores)]
+        self.split_pivot = column
+        self.split_value = value
+        self.children = [BDTNode(df) for df in self._split(column, value)]
+        
+        for child in self.children:
+            if not child.is_leaf:
+                child.fit()
 
 
 class DecisionTree:
@@ -146,8 +272,13 @@ class RandomForest:
             random.shuffle(indices)
             dfs.append(df.iloc[indices[:-stride]])
 
-        for i in range(self.n_estimators):
-            tree = DecisionTree(DTNode)
+        for i in range(self.n_estimators//2):
+            tree = DecisionTree(DTNode2)
+            tree.fit(dfs[i])
+            self.estimators.append(tree)
+
+        for i in range(self.n_estimators//2):
+            tree = DecisionTree(BDTNode)
             tree.fit(dfs[i])
             self.estimators.append(tree)
 
