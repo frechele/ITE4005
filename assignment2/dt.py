@@ -30,16 +30,24 @@ def calc_gini(children: List[pd.DataFrame]):
     col_frac /= np.sum(col_frac)
     return np.sum(np.multiply(col_frac, ginis))
 
+def calc_gain(parent: pd.DataFrame, children: List[pd.DataFrame]):
+    if len(children) == 1:
+        return -np.inf
+
+    return calc_info([parent]) - calc_info(children)
+    
+
 def calc_gain_ratio(parent: pd.DataFrame, children: List[pd.DataFrame]):
     if len(children) == 1:
         return -np.inf
 
-    gain = calc_info([parent]) - calc_info(children)
+    gain = calc_gain(parent, children)
     split_info = np.array([len(child) for child in children])
     split_info = split_info / np.sum(split_info)
     split_info = -np.sum(split_info * np.log2(split_info))
 
     return gain / split_info
+
 
 def calc_gini_index(parent: pd.DataFrame, children: List[pd.DataFrame]):
     if len(children) == 1:
